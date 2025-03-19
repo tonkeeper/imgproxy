@@ -233,12 +233,12 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 		}
 		jsonData, err := json.Marshal(reqBody)
 		if err != nil {
-			return nil, ierrors.New(500, "Failed to marshal request", "Internal error")
+			return nil, ierrors.New(500, "Failed to marshal request: "+err.Error(), "Internal error")
 		}
 
 		req, err := http.NewRequest("POST", config.ImageBackendUrl+"/download/image", bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, ierrors.New(500, "Failed to create request", "Internal error")
+			return nil, ierrors.New(500, "Failed to create request: "+err.Error(), "Internal error")
 		}
 
 		req.Header.Set("Content-Type", "application/json")
@@ -251,7 +251,7 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 
 		resp, err := client.Do(req.WithContext(ctx))
 		if err != nil {
-			return nil, ierrors.New(500, "Failed to download image", "Download error")
+			return nil, ierrors.New(500, "Failed to download image: "+err.Error(), "Download error")
 		}
 		defer resp.Body.Close()
 
@@ -274,12 +274,12 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, ierrors.New(500, "Failed to read image data", "Download error")
+			return nil, ierrors.New(500, "Failed to read image data: "+err.Error(), "Download error")
 		}
 
 		meta, err := imagemeta.DecodeMeta(bytes.NewReader(data))
 		if err == imagemeta.ErrFormat {
-			return nil, ierrors.New(500, "Failed to decode meta", "Download error")
+			return nil, ierrors.New(500, "Failed to decode meta: "+err.Error(), "Download error")
 		}
 
 		headers := make(map[string]string)
