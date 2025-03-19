@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"github.com/imgproxy/imgproxy/v3/imagemeta"
+	"io"
 	"net/http"
-	"net/http/cookiejar"
-	"os"
-	path2 "path"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/imgproxy/imgproxy/v3/config"
-	"github.com/imgproxy/imgproxy/v3/cookies"
 	"github.com/imgproxy/imgproxy/v3/errorreport"
 	"github.com/imgproxy/imgproxy/v3/etag"
 	"github.com/imgproxy/imgproxy/v3/ierrors"
@@ -225,15 +224,76 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 	originData, err := func() (*imagedata.ImageData, error) {
 		defer metrics.StartDownloadingSegment(ctx)()
 
-		var cookieJar *cookiejar.Jar
+		client := &http.Client{}
 
-		if config.CookiePassthrough {
-			if cookieJar, err = cookies.JarFromRequest(r); err != nil {
-				panic(err)
+		reqBody := struct {
+			URL string `json:"url"`
+		}{
+			URL: imageURL,
+		}
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, ierrors.New(500, "Failed to marshal request", "Internal error")
+		}
+
+		req, err := http.NewRequest("POST", config.ImageBackendUrl+"/download/image", bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, ierrors.New(500, "Failed to create request", "Internal error")
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if cacheControl := imgRequestHeader.Get("Cache-Control"); cacheControl != "" {
+			req.Header.Set("Cache-Control", cacheControl)
+		}
+		if eTag := imgRequestHeader.Get("If-None-Match"); eTag != "" {
+			req.Header.Set("If-None-Match", eTag)
+		}
+
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			return nil, ierrors.New(500, "Failed to download image", "Download error")
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusNotModified {
+			headers := make(map[string]string)
+			for k, v := range resp.Header {
+				if len(v) > 0 {
+					headers[k] = v[0]
+				}
+			}
+			return nil, &imagedata.ErrorNotModified{
+				Message: "Not Modified",
+				Headers: headers,
 			}
 		}
 
-		return imagedata.Download(imageURL, "source image", imgRequestHeader, cookieJar)
+		if resp.StatusCode != http.StatusOK {
+			return nil, ierrors.New(resp.StatusCode, "Failed to download image", "Download error")
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, ierrors.New(500, "Failed to read image data", "Download error")
+		}
+
+		meta, err := imagemeta.DecodeMeta(bytes.NewReader(data))
+		if err == imagemeta.ErrFormat {
+			return nil, ierrors.New(500, "Failed to decode meta", "Download error")
+		}
+
+		headers := make(map[string]string)
+		for k, v := range resp.Header {
+			if len(v) > 0 {
+				headers[k] = v[0]
+			}
+		}
+
+		return &imagedata.ImageData{
+			Data:    data,
+			Type:    meta.Format(),
+			Headers: headers,
+		}, nil
 	}()
 
 	if err == nil {
@@ -315,26 +375,6 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 		updatedImage, err := processing.ProcessImage(ctx, originData, po)
 		if err != nil {
 			return nil, err
-		}
-		if config.LocalFileSystemCache == "" {
-			return updatedImage, nil
-		}
-		imagePath := path2.Join(config.LocalFileSystemCache, base64.URLEncoding.EncodeToString([]byte(imageURL)))
-		if _, err = os.Stat(imagePath); !os.IsNotExist(err) {
-			return updatedImage, nil
-		}
-		saveImage := originData
-		if len(originData.Data) > 1024*1024 && (originData.Type == imagetype.JPEG || originData.Type == imagetype.PNG || originData.Type == imagetype.TIFF) {
-			po.Height, po.Width = 1500, 1500
-			saveImage, err = processing.ProcessImage(ctx, originData, po)
-			if err != nil {
-				return updatedImage, nil
-			}
-		}
-		if f, err := os.Create(imagePath); err == nil {
-			defer f.Close()
-			f.Write(saveImage.Data)
-			fmt.Println("save")
 		}
 		return updatedImage, nil
 	}()

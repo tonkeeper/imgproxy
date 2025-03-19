@@ -101,6 +101,8 @@ var (
 	IPFSGateway       string
 	TonstorageGateway string
 
+	ImageBackendUrl string
+
 	SwiftEnabled               bool
 	SwiftUsername              string
 	SwiftAPIKey                string
@@ -427,6 +429,8 @@ func Configure() error {
 
 	configurators.String(&IPFSGateway, "IPFS_GATEWAY")
 	configurators.String(&TonstorageGateway, "TONSTORAGE_GATEWAY")
+
+	configurators.String(&ImageBackendUrl, "IMAGE_BACKEND_URL")
 
 	configurators.Bool(&SwiftEnabled, "IMGPROXY_USE_SWIFT")
 	configurators.String(&SwiftUsername, "IMGPROXY_SWIFT_USERNAME")
