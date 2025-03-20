@@ -255,19 +255,6 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNotModified {
-			headers := make(map[string]string)
-			for k, v := range resp.Header {
-				if len(v) > 0 {
-					headers[k] = v[0]
-				}
-			}
-			return nil, &imagedata.ErrorNotModified{
-				Message: "Not Modified",
-				Headers: headers,
-			}
-		}
-
 		if resp.StatusCode != http.StatusOK {
 			return nil, ierrors.New(resp.StatusCode, "Failed to download image", "Download error")
 		}
