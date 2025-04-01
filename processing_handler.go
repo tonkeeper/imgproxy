@@ -236,7 +236,7 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 			return nil, ierrors.New(500, "Failed to marshal request: "+err.Error(), "Internal error")
 		}
 
-		req, err := http.NewRequest("POST", config.ImageBackendUrl+"/download/image", bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest("GET", config.ImageBackendUrl+"/image", bytes.NewBuffer(jsonData))
 		if err != nil {
 			return nil, ierrors.New(500, "Failed to create request: "+err.Error(), "Internal error")
 		}
