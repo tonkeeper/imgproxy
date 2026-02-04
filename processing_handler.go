@@ -2,14 +2,16 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
-	"github.com/imgproxy/imgproxy/v3/imagemeta"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/imgproxy/imgproxy/v3/imagemeta"
 
 	log "github.com/sirupsen/logrus"
 
@@ -224,32 +226,26 @@ func handleProcessing(reqID string, rw http.ResponseWriter, r *http.Request) {
 	originData, err := func() (*imagedata.ImageData, error) {
 		defer metrics.StartDownloadingSegment(ctx)()
 
-		client := &http.Client{}
-
-		reqBody := struct {
-			URL string `json:"url"`
-		}{
-			URL: imageURL,
-		}
-		jsonData, err := json.Marshal(reqBody)
+		base, err := url.Parse(config.ImageBackendUrl)
 		if err != nil {
-			return nil, ierrors.New(500, "Failed to marshal request: "+err.Error(), "Internal error")
+			return nil, ierrors.New(500, "Failed to parse image backend URL: "+err.Error(), "Internal error")
 		}
+		ref := &url.URL{Path: "/image"}
+		u := base.ResolveReference(ref)
+		u.RawQuery = url.Values{"url": []string{base64.StdEncoding.EncodeToString([]byte(imageURL))}}.Encode()
 
-		req, err := http.NewRequest("GET", config.ImageBackendUrl+"/image", bytes.NewBuffer(jsonData))
+		req, err := http.NewRequest("GET", u.String(), nil)
 		if err != nil {
 			return nil, ierrors.New(500, "Failed to create request: "+err.Error(), "Internal error")
 		}
 
-		req.Header.Set("Content-Type", "application/json")
 		if cacheControl := imgRequestHeader.Get("Cache-Control"); cacheControl != "" {
 			req.Header.Set("Cache-Control", cacheControl)
 		}
 		if eTag := imgRequestHeader.Get("If-None-Match"); eTag != "" {
 			req.Header.Set("If-None-Match", eTag)
 		}
-
-		resp, err := client.Do(req.WithContext(ctx))
+		resp, err := http.DefaultClient.Do(req.WithContext(ctx))
 		if err != nil {
 			return nil, ierrors.New(500, "Failed to download image: "+err.Error(), "Download error")
 		}
